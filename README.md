@@ -85,6 +85,17 @@ Then run `narrator` or `narrator ~/my-project` from anywhere.
 
 In the narrator tab, press **Enter** when ready. Then switch to the Claude tab and use it normally.
 
+### Narrator Controls
+
+While the narrator is running, switch to the narrator tab and type:
+
+| Command | Short | Description |
+|---------|-------|-------------|
+| `pause` | `p` | Temporarily stop narrating |
+| `resume` | `r` | Continue narrating |
+| `stop` | `q` | Quit the narrator |
+| `help` | -- | Show available commands |
+
 ## Windows/WSL Setup (untested)
 
 > **Note:** Windows support is experimental and untested. Community contributions and bug reports are welcome.
@@ -193,7 +204,7 @@ python3 narrator.py --logfile /tmp/claude.log --dry-run
 
 ## Troubleshooting
 
-**Narrator doesn't speak:** Make sure you pressed Enter in the narrator pane to activate it. The narrator waits for you to be ready before it starts listening.
+**Narrator doesn't speak:** Make sure you pressed Enter in the narrator tab to activate it. The narrator waits for you to be ready before it starts listening. Also check it's not paused -- type `resume` in the narrator tab.
 
 **Narrator speaks too much:** The LLM filter might need a larger model. Try `--model qwen2.5:32b` or `--model llama3.1:70b` if you have the RAM.
 
