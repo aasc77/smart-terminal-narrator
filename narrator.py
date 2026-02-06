@@ -359,10 +359,13 @@ class NarrationQueue:
         self._queue: deque[str] = deque()
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self.paused = threading.Event()  # set = paused
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
     def enqueue(self, text: str):
+        if self.paused.is_set():
+            return  # silently drop while paused
         with self._lock:
             # Drop stale narrations if queue is backing up
             if len(self._queue) >= self.max_pending:
@@ -375,6 +378,9 @@ class NarrationQueue:
 
     def _worker(self):
         while not self._stop.is_set():
+            if self.paused.is_set():
+                time.sleep(0.2)
+                continue
             item = None
             with self._lock:
                 if self._queue:
@@ -383,6 +389,44 @@ class NarrationQueue:
                 speak(item, self.voice, self.engine)
             else:
                 time.sleep(0.1)
+
+
+# ---------------------------------------------------------------------------
+# Command listener — accepts typed commands in the narrator terminal
+# ---------------------------------------------------------------------------
+
+class CommandListener:
+    """Listens for typed commands (pause/resume/stop) in a background thread."""
+
+    def __init__(self, narration_queue: NarrationQueue):
+        self.queue = narration_queue
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._listener, daemon=True)
+        self._thread.start()
+
+    def _listener(self):
+        while not self._stop.is_set():
+            try:
+                cmd = input().strip().lower()
+            except EOFError:
+                break
+            if cmd in ("pause", "p"):
+                self.queue.paused.set()
+                print("  Narrator paused. Type 'resume' to continue.")
+            elif cmd in ("resume", "r"):
+                self.queue.paused.clear()
+                print("  Narrator resumed.")
+            elif cmd in ("stop", "quit", "q"):
+                print("  Shutting down...")
+                self.queue.stop()
+                os._exit(0)
+            elif cmd == "help":
+                print("  Commands: pause (p), resume (r), stop (q), help")
+            elif cmd:
+                print("  Unknown command. Type 'help' for options.")
+
+    def stop(self):
+        self._stop.set()
 
 
 # ---------------------------------------------------------------------------
@@ -477,7 +521,10 @@ Examples:
     print(f"🎙️  Narrator ready — watching {source_desc}")
     print(f"    Model: {args.model} | Voice: {args.voice} ({args.tts}) | Interval: {args.interval}s")
     input("\n    Press Enter when you're ready to start narrating...\n")
-    print("    Listening! Press Ctrl+C to stop.\n")
+    print("    Listening! Type 'pause', 'resume', 'stop', or 'help'.\n")
+
+    # Start command listener for pause/resume/stop
+    cmd_listener = CommandListener(narration_queue)
 
     # Set logfile position to end of file so we skip everything before now
     logfile_pos = 0
