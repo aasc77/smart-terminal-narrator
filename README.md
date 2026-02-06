@@ -20,14 +20,15 @@ Filter LLM (Ollama / qwen2.5:14b)
 TTS Engine (Piper neural voice or macOS say)
 ```
 
-The narrator only speaks when Claude:
+The narrator speaks when Claude:
 - Asks you a question
 - Requests permission to run a command, edit a file, or use a tool
 - Presents options for you to choose from
 - Reports an error that needs your attention
+- Gives a summary of completed work
 - Finishes and waits for your next instruction
 
-Everything else (code output, explanations, diffs, progress) is silently skipped.
+Everything else (code output, raw diffs, file contents, progress indicators) is silently skipped.
 
 ## Requirements
 
@@ -64,8 +65,18 @@ chmod +x setup.sh start.sh
 ./setup.sh
 
 # 3. Launch everything
-./start.sh
+./start.sh                    # uses current directory
+./start.sh ~/my-project       # launches Claude in a specific folder
 ```
+
+You can also add a shell alias for quick access from any terminal:
+
+```bash
+# Add to ~/.zshrc or ~/.bashrc
+narrator() { /path/to/smart-terminal-narrator/start.sh "$@"; }
+```
+
+Then run `narrator` or `narrator ~/my-project` from anywhere.
 
 `start.sh` will:
 1. Start Ollama if not running
