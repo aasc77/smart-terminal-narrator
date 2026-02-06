@@ -37,8 +37,13 @@ tmux split-window -h -t "$SESSION"
 # Start narrator in pane 1, watching the log file
 tmux send-keys -t "$SESSION:0.1" "python3 '$SCRIPT_DIR/narrator.py' --logfile '$LOGFILE' --interval 2" Enter
 
-# Start Claude in the left pane
-tmux send-keys -t "$SESSION:0.0" "claude" Enter
+# Start Claude in the left pane (optionally in a specific directory)
+if [ -n "${1:-}" ] && [ -d "$1" ]; then
+    WORK_DIR="$(cd "$1" && pwd)"
+    tmux send-keys -t "$SESSION:0.0" "cd '$WORK_DIR' && claude" Enter
+else
+    tmux send-keys -t "$SESSION:0.0" "claude" Enter
+fi
 
 # Focus the Claude pane
 tmux select-pane -t "$SESSION:0.0"
