@@ -281,9 +281,39 @@ def speak_say(text: str, voice: str = "Samantha"):
         pass
 
 
-PIPER_VOICE_DIR = os.path.expanduser("~/.local/share/piper-voices")
+if sys.platform == "darwin":
+    PIPER_VOICE_DIR = os.path.expanduser("~/.local/share/piper-voices")
+else:
+    PIPER_VOICE_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "piper-voices")
 PIPER_DEFAULT_MODEL = os.path.join(PIPER_VOICE_DIR, "en_US-lessac-high.onnx")
-_PIPER_WAV = "/tmp/narrator_piper.wav"
+
+import tempfile
+_PIPER_WAV = os.path.join(tempfile.gettempdir(), "narrator_piper.wav")
+
+
+def _play_wav(path: str):
+    """Play a WAV file using the platform's native player."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["afplay", path], timeout=60)
+        elif sys.platform == "win32":
+            # PowerShell one-liner for WAV playback on Windows
+            subprocess.run(
+                ["powershell", "-c",
+                 f"(New-Object Media.SoundPlayer '{path}').PlaySync()"],
+                timeout=60,
+            )
+        else:
+            # Linux — try aplay (ALSA), then paplay (PulseAudio)
+            for player in ["aplay", "paplay"]:
+                try:
+                    subprocess.run([player, path], timeout=60)
+                    return
+                except FileNotFoundError:
+                    continue
+            print("Warning: No audio player found (tried aplay, paplay).", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def speak_piper(text: str, model: Optional[str] = None):
@@ -296,7 +326,7 @@ def speak_piper(text: str, model: Optional[str] = None):
             capture_output=True,
             timeout=30,
         )
-        subprocess.run(["afplay", _PIPER_WAV], timeout=60)
+        _play_wav(_PIPER_WAV)
     except FileNotFoundError:
         print("Warning: Piper not found, falling back to macOS say.", file=sys.stderr)
         speak_say(text)

@@ -31,13 +31,28 @@ Everything else (code output, explanations, diffs, progress) is silently skipped
 
 ## Requirements
 
-- macOS (Apple Silicon recommended)
 - Python 3.10+
 - [Ollama](https://ollama.com) -- local LLM runtime
 - tmux -- terminal multiplexer
-- iTerm2 (optional, used by `start.sh`)
 
-## Quick Start
+### macOS
+
+- iTerm2 (optional, used by `start.sh` for auto-launch)
+- macOS `say` available as TTS fallback
+
+### Windows (untested)
+
+- WSL2 with a Linux distro (Ubuntu recommended)
+- tmux, python3, ollama installed inside WSL
+- Windows Terminal recommended
+- See [Windows/WSL Setup](#windowswsl-setup-untested) below
+
+### Linux
+
+- tmux, python3, ollama
+- ALSA (`aplay`) or PulseAudio (`paplay`) for audio playback
+
+## Quick Start (macOS)
 
 ```bash
 # 1. Clone the repo
@@ -58,6 +73,43 @@ chmod +x setup.sh start.sh
 3. Open iTerm2 attached to the session
 
 In the narrator pane (right side), press **Enter** when ready. Then use Claude normally in the left pane.
+
+## Windows/WSL Setup (untested)
+
+> **Note:** Windows support is experimental and untested. Community contributions and bug reports are welcome.
+
+1. Install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) with Ubuntu
+2. Inside WSL, install dependencies:
+   ```bash
+   sudo apt update && sudo apt install -y tmux
+   curl -fsSL https://ollama.com/install.sh | sh
+   pip3 install -r requirements.txt
+   ```
+3. Pull the Ollama model and download the Piper voice:
+   ```bash
+   ollama pull qwen2.5:14b
+   mkdir -p ~/.local/share/piper-voices
+   curl -sL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx" \
+       -o ~/.local/share/piper-voices/en_US-lessac-high.onnx
+   curl -sL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx.json" \
+       -o ~/.local/share/piper-voices/en_US-lessac-high.onnx.json
+   ```
+4. Launch from PowerShell:
+   ```powershell
+   .\start.ps1
+   ```
+   Or manually inside WSL:
+   ```bash
+   tmux new-session -s dev
+   # In one pane: claude
+   # tmux pipe-pane -t dev:0.0 -o "cat >> /tmp/claude-narrator.log"
+   # In another pane: python3 narrator.py --logfile /tmp/claude-narrator.log
+   ```
+
+**Known limitations on Windows/WSL:**
+- Audio playback uses PowerShell's `SoundPlayer` which only supports WAV
+- WSL audio passthrough may require PulseAudio or PipeWire configuration
+- The `start.ps1` script assumes WSL is the default distro
 
 ## Manual Usage
 
@@ -112,9 +164,18 @@ python3 narrator.py --logfile /tmp/claude.log --dry-run
 
 ## TTS Engines
 
-**Piper** (default) -- Neural TTS that runs locally. Sounds natural and human-like. The setup script downloads the `en_US-lessac-high` voice model (~109MB) to `~/.local/share/piper-voices/`.
+**Piper** (default) -- Neural TTS that runs locally. Sounds natural and human-like. The setup script downloads the `en_US-lessac-high` voice model (~109MB) to `~/.local/share/piper-voices/`. Works on macOS, Linux, and Windows.
 
 **macOS say** (fallback) -- Built-in macOS speech synthesis. Works out of the box. For better quality, download premium voices in System Settings > Accessibility > Spoken Content > System Voice > Manage Voices.
+
+## Platform Support
+
+| Platform | Status | Launcher | Audio |
+|----------|--------|----------|-------|
+| macOS (Apple Silicon) | Tested | `start.sh` + iTerm2 | `afplay` / Piper |
+| macOS (Intel) | Should work | `start.sh` + iTerm2 | `afplay` / Piper |
+| Linux | Should work | Manual tmux | `aplay` / `paplay` / Piper |
+| Windows (WSL2) | **Untested** | `start.ps1` | PowerShell `SoundPlayer` / Piper |
 
 ## Troubleshooting
 
@@ -125,6 +186,18 @@ python3 narrator.py --logfile /tmp/claude.log --dry-run
 **Narrator speaks too little:** Check that `tmux pipe-pane` is active and the log file is growing: `tail -f /tmp/claude-narrator.log`
 
 **Ollama not connecting:** Run `ollama serve` in a separate terminal, or check if it's already running with `curl http://localhost:11434/api/tags`.
+
+**No audio on Linux:** Install ALSA utilities (`sudo apt install alsa-utils`) or PulseAudio (`sudo apt install pulseaudio-utils`).
+
+**No audio on WSL:** WSL doesn't pass through audio by default. You may need to configure PulseAudio or PipeWire to route audio to the Windows host.
+
+## Contributing
+
+Contributions welcome -- especially for:
+- Windows/WSL testing and fixes
+- Linux distribution testing
+- Additional TTS engine support
+- Better terminal output parsing
 
 ## License
 
