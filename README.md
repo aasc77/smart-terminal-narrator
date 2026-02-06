@@ -5,8 +5,8 @@ A local voice assistant that watches your Claude Code terminal and speaks only w
 ## How It Works
 
 ```
-Claude Code (tmux pane)
-        |  tmux pipe-pane streams output to log file
+Claude Code (iTerm2 tab)
+        |  `script` command logs output to file
         v
 Log File (/tmp/claude-narrator.log)
         |  narrator.py reads new content
@@ -34,12 +34,12 @@ Everything else (code output, raw diffs, file contents, progress indicators) is 
 
 - Python 3.10+
 - [Ollama](https://ollama.com) -- local LLM runtime
-- tmux -- terminal multiplexer
 
 ### macOS
 
-- iTerm2 (optional, used by `start.sh` for auto-launch)
+- iTerm2 (used by `start.sh` for auto-launch)
 - macOS `say` available as TTS fallback
+- No tmux needed -- uses `script` command + iTerm2 tabs
 
 ### Windows (untested)
 
@@ -80,10 +80,10 @@ Then run `narrator` or `narrator ~/my-project` from anywhere.
 
 `start.sh` will:
 1. Start Ollama if not running
-2. Create a tmux session with Claude Code + narrator side by side
-3. Open iTerm2 attached to the session
+2. Open iTerm2 with two tabs: Claude Code + narrator
+3. Log Claude's output via `script` (no tmux -- full mouse scrolling preserved)
 
-In the narrator pane (right side), press **Enter** when ready. Then use Claude normally in the left pane.
+In the narrator tab, press **Enter** when ready. Then switch to the Claude tab and use it normally.
 
 ## Windows/WSL Setup (untested)
 
@@ -130,17 +130,20 @@ If you prefer to set things up yourself:
 # Start Ollama
 ollama serve
 
-# In one terminal, start a tmux session
-tmux new-session -s dev
-
-# Pipe the pane output to a log file
-tmux pipe-pane -t dev:0.0 -o "cat >> /tmp/claude-narrator.log"
-
-# Run Claude Code
-claude
+# In one terminal, run Claude with output logging
+script -q /tmp/claude-narrator.log claude
 
 # In another terminal, start the narrator
 python3 narrator.py --logfile /tmp/claude-narrator.log
+```
+
+Alternatively, you can use tmux with `pipe-pane` if you prefer:
+
+```bash
+tmux new-session -s dev
+tmux pipe-pane -t dev:0.0 -o "cat >> /tmp/claude-narrator.log"
+claude
+# In another pane: python3 narrator.py --logfile /tmp/claude-narrator.log
 ```
 
 ## Options
@@ -194,7 +197,7 @@ python3 narrator.py --logfile /tmp/claude.log --dry-run
 
 **Narrator speaks too much:** The LLM filter might need a larger model. Try `--model qwen2.5:32b` or `--model llama3.1:70b` if you have the RAM.
 
-**Narrator speaks too little:** Check that `tmux pipe-pane` is active and the log file is growing: `tail -f /tmp/claude-narrator.log`
+**Narrator speaks too little:** Check that the log file is growing: `tail -f /tmp/claude-narrator.log`
 
 **Ollama not connecting:** Run `ollama serve` in a separate terminal, or check if it's already running with `curl http://localhost:11434/api/tags`.
 

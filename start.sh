@@ -2,13 +2,11 @@
 #
 # Smart Terminal Narrator — Start Script
 #
-# Opens iTerm2, creates a tmux session with Claude Code in the left pane
-# and the narrator in the right pane. Uses pipe-pane to stream
-# Claude's output to a log file, which the narrator watches.
+# Opens iTerm2 with two tabs: Claude Code (with output logging via `script`)
+# and the narrator. No tmux required — full mouse scrolling preserved.
 
 set -euo pipefail
 
-SESSION="dev"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOGFILE="/tmp/claude-narrator.log"
 
@@ -19,44 +17,39 @@ if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     sleep 2
 fi
 
-# Kill existing session if present
-tmux kill-session -t "$SESSION" 2>/dev/null || true
-
 # Clear the log file
 > "$LOGFILE"
 
-# Create session — Claude goes in pane 0
-tmux new-session -d -s "$SESSION" -x 200 -y 50
-
-# Pipe pane 0 output to the log file
-tmux pipe-pane -t "$SESSION:0.0" -o "cat >> $LOGFILE"
-
-# Split — right pane (1) for narrator
-tmux split-window -h -t "$SESSION"
-
-# Start narrator in pane 1, watching the log file
-tmux send-keys -t "$SESSION:0.1" "python3 '$SCRIPT_DIR/narrator.py' --logfile '$LOGFILE' --interval 2" Enter
-
-# Start Claude in the left pane (optionally in a specific directory)
+# Resolve working directory (optional first argument)
+WORK_DIR="$(pwd)"
 if [ -n "${1:-}" ] && [ -d "$1" ]; then
     WORK_DIR="$(cd "$1" && pwd)"
-    tmux send-keys -t "$SESSION:0.0" "cd '$WORK_DIR' && claude" Enter
-else
-    tmux send-keys -t "$SESSION:0.0" "claude" Enter
 fi
 
-# Focus the Claude pane
-tmux select-pane -t "$SESSION:0.0"
+NARRATOR_CMD="python3 '$SCRIPT_DIR/narrator.py' --logfile '$LOGFILE' --interval 2"
+CLAUDE_CMD="cd '$WORK_DIR' && script -q '$LOGFILE' claude"
 
-# Launch iTerm2 and attach to the tmux session
-open -a iTerm
-sleep 1
-osascript -e '
+osascript <<APPLESCRIPT
 tell application "iTerm2"
     activate
     set newWindow to (create window with default profile)
+
+    -- Tab 1: Claude Code (with script logging)
     tell current session of newWindow
-        write text "tmux attach -t dev"
+        write text "$CLAUDE_CMD"
+    end tell
+
+    -- Tab 2: Narrator
+    tell newWindow
+        set narratorTab to (create tab with default profile)
+        tell current session of narratorTab
+            write text "$NARRATOR_CMD"
+        end tell
+    end tell
+
+    -- Focus back on Claude tab
+    tell newWindow
+        select first tab
     end tell
 end tell
-'
+APPLESCRIPT
