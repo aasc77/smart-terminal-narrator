@@ -25,39 +25,53 @@ import requests
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
-You are a terminal narrator assistant. You receive raw terminal output from a Claude Code session.
+You are a terminal watcher for Claude Code. You receive raw terminal output and must detect when Claude is asking the user to take action.
 
-Your job:
-1. IDENTIFY what type of content this is (conversational response, code, file operation, error, progress indicator, etc.)
-2. EXTRACT only the parts worth speaking aloud
-3. SUMMARIZE if the output is long
+SPEAK only when Claude is:
+- Asking a question that needs the user's answer
+- Requesting permission to run a command, edit a file, or execute a tool
+- Showing a Yes/No or Allow/Deny prompt
+- Asking the user to choose between options
+- Reporting an error that blocks progress and needs user intervention
+- Saying it is done and waiting for the next instruction
 
-Rules:
-- SPEAK: Claude's conversational responses, important results, summaries, confirmations, questions to the user, errors/warnings that need attention
-- SKIP: Code blocks, file contents, directory listings, git diffs, progress bars/spinners, ANSI escape sequences, command echoes, file paths
-- SUMMARIZE: If Claude wrote a long code file, say something like "Created a Python file called main.py with 120 lines"
-- SUMMARIZE: If Claude ran multiple commands, say "Ran 3 commands successfully" rather than reading each one
-- Keep narration brief and natural — like a helpful assistant sitting next to you
-- If there's nothing worth narrating, respond with exactly: SKIP
+SKIP everything else:
+- Code output, diffs, file contents, directory listings
+- Progress indicators, spinners, status updates
+- Explanations, summaries, conversational responses
+- Tool execution output, command results
+- ANSI escape sequences, terminal noise
 
-Output ONLY the text to be spoken, or SKIP. No explanations, no markdown, no formatting."""
+When you SPEAK, be brief but include the options if there are any. Examples:
+- "Claude wants to edit main.py. Approve?"
+- "Claude is asking which database to use. Option 1: PostgreSQL. Option 2: DynamoDB. Option 3: SQLite."
+- "Claude wants to run npm install. Allow or deny?"
+- "Claude is done and waiting for input."
+- "Error. Claude needs your attention."
+- "Claude is asking: do you want tests? Yes or no."
+
+IMPORTANT: When there are choices or options listed, always read them out.
+
+If there is no action needed from the user, respond with exactly: SKIP
+
+Output ONLY the short spoken alert, or SKIP. Nothing else."""
 
 # ---------------------------------------------------------------------------
-# ANSI / control-character stripping
+# ANSI / control-character stripping + terminal noise filtering
 # ---------------------------------------------------------------------------
 
 _ANSI_RE = re.compile(r"""
     \x1b       # ESC
     (?:
-        \[     # CSI
-        [0-9;]*
+        \[     # CSI sequences (colors, cursor, etc.)
+        [0-9;?]*
         [A-Za-z]
     |
-        \]     # OSC
+        \]     # OSC sequences
         .*?
         (?:\x07|\x1b\\)
     |
-        [()][AB012]   # charset
+        [()][AB012]   # charset switching
     |
         [=><=]        # keypad / cursor modes
     )
@@ -65,12 +79,52 @@ _ANSI_RE = re.compile(r"""
 
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
+# High-byte Unicode box-drawing / decorative characters from Claude Code UI
+_UNICODE_NOISE_RE = re.compile(r"[\u2500-\u257f\u2580-\u259f\u25a0-\u25ff\u2800-\u28ff\ue000-\uf8ff\U000f0000-\U000fffff]+")
+
+# Lines that are just UI noise from Claude Code
+_NOISE_PATTERNS = [
+    re.compile(r"^\s*[─━┄┈╌═╍]+\s*$"),           # horizontal rules
+    re.compile(r"^\s*[│┃┆┊╎║╏]+\s*$"),           # vertical bars only
+    re.compile(r"^\s*[╭╮╰╯┌┐└┘]+"),              # box corners
+    re.compile(r"^\s*\?\s*(for\s+shortcuts)?\s*$"), # "? for shortcuts"
+    re.compile(r"^\s*Try\s+\".*\"\s*$"),           # autocomplete suggestions
+    re.compile(r"^\s*/\w+\s+for\s+"),              # "/ide for Antigravity" etc.
+    re.compile(r"^\s*(Welcome\s+back|Recent\s+activity|Tips\s+for)"),  # welcome screen
+    re.compile(r"^\s*\d+[smh]\s+ago\s+"),          # "9m ago explain..."
+    re.compile(r"^\s*/resume\s+for\s+more"),       # resume prompt
+    re.compile(r"^\s*/release-notes"),              # release notes link
+    re.compile(r"^\s*(Claude\s+Code|Opus|Sonnet|Haiku)\s+[\d.]+"), # version lines
+    re.compile(r"^\s*Claude\s+Max\b"),             # plan info
+    re.compile(r"^\s*~/"),                         # path display
+    re.compile(r"^\s*What's\s+new"),               # changelog header
+    re.compile(r"^\s*Fixed\s+a\s+(crash|bug)"),    # changelog entries
+    re.compile(r"^\s*$"),                          # blank lines
+]
+
 
 def strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences and control characters."""
+    """Remove ANSI escape sequences, control characters, and Unicode noise."""
     text = _ANSI_RE.sub("", text)
     text = _CONTROL_RE.sub("", text)
+    text = _UNICODE_NOISE_RE.sub(" ", text)
+    # Collapse multiple spaces
+    text = re.sub(r"  +", " ", text)
     return text
+
+
+def clean_terminal_output(text: str) -> str:
+    """Strip ANSI codes and filter out Claude Code UI noise lines."""
+    text = strip_ansi(text)
+    clean_lines = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if any(p.search(line) for p in _NOISE_PATTERNS):
+            continue
+        clean_lines.append(line)
+    return "\n".join(clean_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -97,13 +151,13 @@ def capture_pane(pane: str, history_lines: int = 200) -> str:
 
 
 def capture_from_file(path: str, last_pos: int = 0) -> tuple[str, int]:
-    """Fallback: capture new content from a log file instead of tmux."""
+    """Capture new content from a log file, clean terminal noise."""
     try:
         with open(path, "r", errors="replace") as fh:
             fh.seek(last_pos)
             new_text = fh.read()
             new_pos = fh.tell()
-        return strip_ansi(new_text), new_pos
+        return clean_terminal_output(new_text), new_pos
     except FileNotFoundError:
         return "", last_pos
 
@@ -115,39 +169,41 @@ def capture_from_file(path: str, last_pos: int = 0) -> tuple[str, int]:
 def get_new_output(current: str, previous: str) -> Optional[str]:
     """Return only the lines in *current* that weren't in *previous*."""
     if not previous:
-        # First capture — treat everything as new
-        return current.strip() or None
+        # First capture — skip to avoid narrating stale screen content
+        return None
 
     prev_lines = previous.splitlines()
     cur_lines = current.splitlines()
 
-    # Find the longest suffix of prev_lines that appears in cur_lines
-    # to figure out where new content starts.
-    overlap = 0
-    for i in range(min(len(prev_lines), len(cur_lines))):
-        # Walk backwards through prev to find matching tail in cur
-        pass
+    if prev_lines == cur_lines:
+        return None
 
-    # Simple approach: find where previous content ends in current
-    # Use the last N lines of previous as an anchor
-    anchor_size = min(5, len(prev_lines))
-    anchor = prev_lines[-anchor_size:] if anchor_size > 0 else []
+    # Try multiple anchor sizes to find where previous content ends in current
+    for anchor_size in [5, 3, 2, 1]:
+        if len(prev_lines) < anchor_size:
+            continue
+        # Use the last N non-blank lines of previous as anchor
+        anchor = prev_lines[-anchor_size:]
 
-    if anchor:
-        # Search for the anchor block in current lines
+        # Search for the anchor in current (prefer latest match)
         for i in range(len(cur_lines) - anchor_size, -1, -1):
             if cur_lines[i : i + anchor_size] == anchor:
                 new_lines = cur_lines[i + anchor_size :]
                 new_text = "\n".join(new_lines).strip()
                 return new_text if new_text else None
 
-    # Fallback: if we can't find the anchor, diff by length
+    # Fallback: if content changed but we can't anchor, return the
+    # trailing portion that differs
     if len(cur_lines) > len(prev_lines):
         new_lines = cur_lines[len(prev_lines) :]
         new_text = "\n".join(new_lines).strip()
         return new_text if new_text else None
 
-    return None
+    # Content changed (scrolled) but we can't isolate new lines —
+    # return the last chunk as best effort
+    tail_size = min(20, len(cur_lines))
+    new_text = "\n".join(cur_lines[-tail_size:]).strip()
+    return new_text if new_text else None
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +212,7 @@ def get_new_output(current: str, previous: str) -> Optional[str]:
 
 def filter_with_llm(
     text: str,
-    model: str = "llama3.2:3b",
+    model: str = "qwen2.5:14b",
     ollama_url: str = "http://localhost:11434",
     timeout: float = 30.0,
 ) -> Optional[str]:
@@ -225,37 +281,33 @@ def speak_say(text: str, voice: str = "Samantha"):
         pass
 
 
-def speak_piper(text: str, model: str = "en_US-lessac-medium"):
-    """Speak using Piper TTS (better quality, requires piper-tts)."""
+PIPER_VOICE_DIR = os.path.expanduser("~/.local/share/piper-voices")
+PIPER_DEFAULT_MODEL = os.path.join(PIPER_VOICE_DIR, "en_US-lessac-high.onnx")
+_PIPER_WAV = "/tmp/narrator_piper.wav"
+
+
+def speak_piper(text: str, model: Optional[str] = None):
+    """Speak using Piper TTS (neural, high quality, local)."""
+    model = model or PIPER_DEFAULT_MODEL
     try:
-        # Piper outputs raw PCM; pipe through aplay/afplay
-        piper_proc = subprocess.Popen(
-            ["piper", "--model", model, "--output-raw"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+        subprocess.run(
+            ["piper", "--model", model, "--output_file", _PIPER_WAV],
+            input=text.encode(),
+            capture_output=True,
+            timeout=30,
         )
-        audio_data, _ = piper_proc.communicate(input=text.encode(), timeout=60)
-
-        # Try afplay on macOS, aplay on Linux
-        player = "afplay" if sys.platform == "darwin" else "aplay"
-        play_proc = subprocess.Popen(
-            [player, "-"],
-            stdin=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
-        play_proc.communicate(input=audio_data, timeout=60)
-
+        subprocess.run(["afplay", _PIPER_WAV], timeout=60)
     except FileNotFoundError:
-        print("Error: Piper TTS not found. Install with: pip install piper-tts", file=sys.stderr)
+        print("Warning: Piper not found, falling back to macOS say.", file=sys.stderr)
+        speak_say(text)
     except subprocess.TimeoutExpired:
         pass
 
 
 def speak(text: str, voice: str, engine: str):
-    """Dispatch to the configured TTS engine."""
+    """Dispatch to the configured TTS engine. Piper with say fallback."""
     if engine == "piper":
-        speak_piper(text, model=voice)
+        speak_piper(text)
     else:
         speak_say(text, voice=voice)
 
@@ -311,7 +363,7 @@ def main():
         epilog="""\
 Examples:
   python narrator.py --pane 0
-  python narrator.py --pane 0 --interval 2 --voice Alex --model llama3.2:3b
+  python narrator.py --pane 0 --interval 2 --voice Alex --model qwen2.5:14b
   python narrator.py --logfile /tmp/claude.log   # fallback without tmux
         """,
     )
@@ -329,12 +381,12 @@ Examples:
         help="TTS voice name (default: Samantha)",
     )
     parser.add_argument(
-        "--model", default="llama3.2:3b",
-        help="Ollama model for filtering (default: llama3.2:3b)",
+        "--model", default="qwen2.5:14b",
+        help="Ollama model for filtering (default: qwen2.5:14b)",
     )
     parser.add_argument(
-        "--tts", default="say", choices=["say", "piper"],
-        help="TTS engine (default: say)",
+        "--tts", default="piper", choices=["say", "piper"],
+        help="TTS engine (default: piper)",
     )
     parser.add_argument(
         "--ollama-url", default="http://localhost:11434",
@@ -389,12 +441,21 @@ Examples:
     use_logfile = args.logfile is not None
     source_desc = f"log file {args.logfile}" if use_logfile else f"tmux pane {args.pane}"
 
-    print(f"🎙️  Narrator active — watching {source_desc}")
+    print(f"🎙️  Narrator ready — watching {source_desc}")
     print(f"    Model: {args.model} | Voice: {args.voice} ({args.tts}) | Interval: {args.interval}s")
-    print(f"    Press Ctrl+C to stop.\n")
+    input("\n    Press Enter when you're ready to start narrating...\n")
+    print("    Listening! Press Ctrl+C to stop.\n")
+
+    # Set logfile position to end of file so we skip everything before now
+    logfile_pos = 0
+    if use_logfile:
+        try:
+            logfile_pos = os.path.getsize(args.logfile)
+        except OSError:
+            pass
 
     previous_output = ""
-    logfile_pos = 0
+    previous_hash = ""
 
     try:
         while True:
@@ -402,12 +463,22 @@ Examples:
             if use_logfile:
                 new_text, logfile_pos = capture_from_file(args.logfile, logfile_pos)
                 new_text = new_text.strip() if new_text else None
+                if args.dry_run and new_text:
+                    print(f"  [logfile: captured {len(new_text)} chars]")
             else:
                 current_output = capture_pane(args.pane)
+                # Quick check: skip if pane content hasn't changed at all
+                current_hash = str(hash(current_output))
+                if current_hash == previous_hash:
+                    time.sleep(args.interval)
+                    continue
+                previous_hash = current_hash
                 new_text = get_new_output(current_output, previous_output)
                 previous_output = current_output
+                if args.dry_run and new_text:
+                    print(f"  [captured {len(new_text)} chars of new text]")
 
-            if not new_text:
+            if not new_text or len(new_text) < 10:
                 time.sleep(args.interval)
                 continue
 
@@ -422,6 +493,8 @@ Examples:
                 print(f"🔊 {narration}")
                 if not args.dry_run:
                     narration_queue.enqueue(narration)
+            elif args.dry_run:
+                print("  [LLM returned SKIP]")
 
             time.sleep(args.interval)
 

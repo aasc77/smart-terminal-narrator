@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VOICE_DIR="$HOME/.local/share/piper-voices"
+
 echo "=== Smart Terminal Narrator — Setup ==="
 echo ""
 
@@ -18,18 +21,18 @@ fi
 
 # ---- Ollama ----
 if ! command -v ollama &>/dev/null; then
-    echo "📦 Installing Ollama..."
+    echo "Installing Ollama..."
     brew install ollama
 else
-    echo "✅ Ollama already installed"
+    echo "OK: Ollama already installed"
 fi
 
 # ---- tmux ----
 if ! command -v tmux &>/dev/null; then
-    echo "📦 Installing tmux..."
+    echo "Installing tmux..."
     brew install tmux
 else
-    echo "✅ tmux already installed"
+    echo "OK: tmux already installed"
 fi
 
 # ---- Python 3 ----
@@ -37,24 +40,34 @@ if ! command -v python3 &>/dev/null; then
     echo "Error: Python 3.10+ is required. Install with: brew install python@3.12"
     exit 1
 else
-    echo "✅ Python 3 found: $(python3 --version)"
+    echo "OK: Python 3 found: $(python3 --version)"
 fi
 
 # ---- Python dependencies ----
-echo "📦 Installing Python dependencies..."
-pip3 install -r "$(dirname "$0")/requirements.txt"
+echo "Installing Python dependencies..."
+pip3 install -r "$SCRIPT_DIR/requirements.txt"
 
 # ---- Pull the default Ollama model ----
 echo ""
-echo "📦 Pulling llama3.2:3b model (this may take a few minutes on first run)..."
-ollama pull llama3.2:3b
+echo "Pulling qwen2.5:14b model (this may take a few minutes on first run)..."
+ollama pull qwen2.5:14b
+
+# ---- Download Piper TTS voice model ----
+echo ""
+echo "Downloading Piper TTS voice model..."
+mkdir -p "$VOICE_DIR"
+if [ ! -f "$VOICE_DIR/en_US-lessac-high.onnx" ]; then
+    curl -sL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx" \
+        -o "$VOICE_DIR/en_US-lessac-high.onnx"
+    curl -sL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/en_US-lessac-high.onnx.json" \
+        -o "$VOICE_DIR/en_US-lessac-high.onnx.json"
+    echo "OK: Piper voice model downloaded"
+else
+    echo "OK: Piper voice model already exists"
+fi
 
 echo ""
 echo "=== Setup complete! ==="
 echo ""
-echo "Quick start:"
-echo "  1. Start Ollama (if not running):  ollama serve"
-echo "  2. Open a tmux session:            tmux new-session -s dev"
-echo "  3. Run Claude Code in pane 0:      claude"
-echo "  4. In another pane/terminal:       python3 narrator.py --pane 0"
+echo "To start:  ./start.sh"
 echo ""
