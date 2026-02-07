@@ -62,10 +62,16 @@ class WakeWordListener:
 
         self._ensure_models()
 
+        if self.on_speech_interrupt:
+            import torch
+        else:
+            torch = None
+
         sample_rate = 16000
         # openWakeWord expects 1280-sample chunks (80 ms at 16 kHz)
         chunk_samples = 1280
         cooldown_until = 0.0
+        interrupt_cooldown = 0.0
 
         stream = sd.InputStream(
             samplerate=sample_rate,
@@ -94,8 +100,7 @@ class WakeWordListener:
                         break
 
                 # VAD-based interrupt: detect user speech during TTS
-                if self._vad_model and self.on_speech_interrupt:
-                    import torch
+                if self._vad_model and self.on_speech_interrupt and now >= interrupt_cooldown:
                     audio_f32 = audio_i16.astype(np.float32) / 32768.0
                     # Silero VAD needs 512-sample chunks
                     for i in range(0, len(audio_f32) - 511, 512):
@@ -103,6 +108,7 @@ class WakeWordListener:
                         conf = self._vad_model(chunk, sample_rate).item()
                         if conf >= 0.7:
                             self.on_speech_interrupt()
+                            interrupt_cooldown = now + 2.0  # 2 s cooldown
                             break
         finally:
             stream.stop()

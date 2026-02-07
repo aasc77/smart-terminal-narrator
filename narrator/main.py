@@ -20,6 +20,7 @@ class CommandListener:
         self.queue = narration_queue
         self._voice_trigger = voice_trigger
         self._stop = threading.Event()
+        self.shutdown_requested = threading.Event()
         self._thread = threading.Thread(target=self._listener, daemon=True)
         self._thread.start()
 
@@ -38,7 +39,8 @@ class CommandListener:
             elif cmd in ("stop", "quit", "q"):
                 print("  Shutting down...")
                 self.queue.stop()
-                sys.exit(0)
+                self.shutdown_requested.set()
+                break
             elif cmd in ("voice", "v"):
                 if self._voice_trigger:
                     threading.Thread(
@@ -311,7 +313,7 @@ Examples:
     previous_hash = ""
 
     try:
-        while True:
+        while not cmd_listener.shutdown_requested.is_set():
             # --- Capture ---
             if use_logfile:
                 new_text, logfile_pos = capture_from_file(args.logfile, logfile_pos)
@@ -354,7 +356,10 @@ Examples:
             time.sleep(args.interval)
 
     except KeyboardInterrupt:
+        pass
+    finally:
         narration_queue.stop()
+        cmd_listener.stop()
         if wakeword_listener:
             wakeword_listener.stop()
         print("\n🛑 Narrator stopped.")
