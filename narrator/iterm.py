@@ -28,7 +28,7 @@ def send_to_claude_tab(text: str, session_id: str = None):
 
     if session_id:
         # Validate session_id: only allow alphanumeric, hyphens, and underscores
-        if not re.match(r"^[\w-]+$", session_id):
+        if not re.match(r"^[\w-]+$", session_id, re.ASCII):
             print(f"Warning: invalid session_id '{session_id}'.", file=sys.stderr)
             return
         script = f'''

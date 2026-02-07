@@ -18,7 +18,9 @@ else:
     )
 PIPER_DEFAULT_MODEL = os.path.join(PIPER_VOICE_DIR, "en_US-lessac-high.onnx")
 
-_PIPER_WAV = os.path.join(tempfile.gettempdir(), "narrator_piper.wav")
+_PIPER_WAV = os.path.join(
+    tempfile.gettempdir(), f"narrator_piper_{os.getpid()}.wav"
+)
 
 # Module-level handle for the currently playing audio process (for interrupt)
 _current_audio_proc: Optional[subprocess.Popen] = None
@@ -61,15 +63,14 @@ def _play_wav(path: str):
                 _current_audio_proc = subprocess.Popen(["afplay", path])
             _current_audio_proc.wait(timeout=60)
         elif sys.platform == "win32":
-            # Validate path to prevent PowerShell injection
-            safe_path = os.path.normpath(path)
-            if not safe_path.endswith(".wav"):
-                print("Error: invalid WAV path.", file=sys.stderr)
-                return
+            # Use a PowerShell script block with param to avoid string injection
+            ps_script = (
+                "param($p); (New-Object Media.SoundPlayer $p).PlaySync()"
+            )
             with _audio_lock:
                 _current_audio_proc = subprocess.Popen(
-                    ["powershell", "-c",
-                     f"(New-Object Media.SoundPlayer '{safe_path}').PlaySync()"],
+                    ["powershell", "-NoProfile", "-Command", ps_script,
+                     "-p", os.path.normpath(path)],
                 )
             _current_audio_proc.wait(timeout=60)
         else:

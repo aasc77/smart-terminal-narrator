@@ -38,7 +38,7 @@ class CommandListener:
             elif cmd in ("stop", "quit", "q"):
                 print("  Shutting down...")
                 self.queue.stop()
-                os._exit(0)
+                sys.exit(0)
             elif cmd in ("voice", "v"):
                 if self._voice_trigger:
                     threading.Thread(
