@@ -4,11 +4,24 @@
 #
 # Opens iTerm2 with two tabs: Claude Code (with output logging via `script`)
 # and the narrator. No tmux required — full mouse scrolling preserved.
+#
+# Usage:
+#   ./start.sh [working-dir] [--voice]
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOGFILE="/tmp/claude-narrator.log"
+
+# Parse flags
+VOICE_FLAGS=""
+for arg in "$@"; do
+    case "$arg" in
+        --voice)
+            VOICE_FLAGS="--voice-input"
+            ;;
+    esac
+done
 
 # Check Ollama is running
 if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
@@ -20,13 +33,13 @@ fi
 # Clear the log file
 > "$LOGFILE"
 
-# Resolve working directory (optional first argument)
+# Resolve working directory (optional first positional argument)
 WORK_DIR="$(pwd)"
 if [ -n "${1:-}" ] && [ -d "$1" ]; then
     WORK_DIR="$(cd "$1" && pwd)"
 fi
 
-NARRATOR_CMD="python3 '$SCRIPT_DIR/narrator.py' --logfile '$LOGFILE' --interval 2"
+NARRATOR_CMD="python3 '$SCRIPT_DIR/narrator.py' --logfile '$LOGFILE' --interval 2 $VOICE_FLAGS"
 CLAUDE_CMD="cd '$WORK_DIR' && script -q '$LOGFILE' claude"
 
 osascript <<APPLESCRIPT

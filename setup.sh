@@ -27,14 +27,6 @@ else
     echo "OK: Ollama already installed"
 fi
 
-# ---- tmux ----
-if ! command -v tmux &>/dev/null; then
-    echo "Installing tmux..."
-    brew install tmux
-else
-    echo "OK: tmux already installed"
-fi
-
 # ---- Python 3 ----
 if ! command -v python3 &>/dev/null; then
     echo "Error: Python 3.10+ is required. Install with: brew install python@3.12"
@@ -66,8 +58,16 @@ else
     echo "OK: Piper voice model already exists"
 fi
 
+# ---- Microphone permissions note ----
+echo ""
+echo "NOTE: Voice input requires microphone access."
+echo "      macOS will prompt for permission on first use."
+echo "      Grant access to Terminal/iTerm2 in:"
+echo "      System Settings > Privacy & Security > Microphone"
+
 echo ""
 echo "=== Setup complete! ==="
 echo ""
 echo "To start:  ./start.sh"
+echo "With voice: ./start.sh --voice"
 echo ""
