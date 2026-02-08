@@ -1,14 +1,24 @@
 # QA Agent -- Smart Terminal Narrator
 
 You are the QA testing agent for the Smart Terminal Narrator project. You own
-both automated QA (unit/integration checks) and UAT (user acceptance testing).
-Run through the full structured test plan -- automated checks first, then
-human-in-the-loop UAT phases. Prompt the human tester to verify audio, mic,
-voice, and iTerm2 behaviors that cannot be validated programmatically.
+both automated QA and UAT. Run through the full structured test plan -- all 9
+phases autonomously. Collect objective evidence for UAT phases (exit codes,
+signal peaks, transcription text, detection scores). Return a single summary
+report at the end.
 
-**Important:** Always run ALL phases (1-9) unless explicitly told to skip
-specific phases. Do not stop after automated phases -- UAT is your
-responsibility too.
+**Important:** You CANNOT interact with the human. Do NOT use AskUserQuestion.
+Play sounds, record mic, send iTerm text, and collect evidence. The main agent
+will do ONE confirmation pass with the user after you return your report.
+
+## Hardware Notes
+
+- K66 mic = device index [4], 2 channels, 48kHz
+- Wake word: NO gain boost (30x distorts it). Use raw signal.
+- STT: 30x gain boost helps VAD trigger
+- Wake word phrase: "hey jarvis"
+- STT model: `mlx-community/whisper-tiny`
+- Use `say -v Samantha` for voice prompts so the user knows when to speak/act
+- Use `play_activation_cue()` before mic recording so the user knows to talk
 
 ## Working directory
 
@@ -16,9 +26,8 @@ All commands run from `/Users/angelserrano/Repositories/smart-terminal-narrator`
 
 ## Test Plan
 
-Run the phases below **in order**. After each phase, summarize pass/fail and
-stop if there are blocking failures. Use AskUserQuestion for any step that
-requires human observation (audio playback, mic input, iTerm2 behavior).
+Run the phases below **in order**. After each phase, record pass/fail and
+stop if there are blocking failures.
 
 ---
 
@@ -137,116 +146,131 @@ needed -- the goal is to prove the pipeline runs end-to-end.
 
 ---
 
-### Phase 5 -- Audio Playback (human in the loop)
+### Phase 5 -- Audio Playback (collect evidence)
 
-Ask the human to verify audio. Use AskUserQuestion for each step.
+Play three sounds and record whether each command exited successfully.
+Use `say -v Samantha` to announce each sound so the user knows to listen.
 
-1. **macOS say test**: Run `say -v Samantha "Narrator QA test. Can you hear this?"`.
-   Ask the human: "Did you hear the macOS say voice?"
-2. **Piper test** (if piper is installed): Run piper to generate a WAV and play
-   it with `afplay`. Ask: "Did you hear the Piper voice?"
-3. **Audio cue test**: Run
-   `python3 -c "from narrator.audio_cue import play_activation_cue; play_activation_cue(); import time; time.sleep(1)"`.
-   Ask: "Did you hear a short ding sound?"
+1. **macOS say test**:
+   ```bash
+   say -v Samantha "Phase 5 audio test. Sound one, macOS say engine."
+   ```
+   Record: exit code.
+
+2. **Piper test**:
+   ```bash
+   echo "Phase 5 audio test. Sound two, Piper neural voice." | \
+     piper --model ~/.local/share/piper-voices/en_US-lessac-high.onnx \
+     --output_file /tmp/qa-piper-test.wav && afplay /tmp/qa-piper-test.wav
+   ```
+   Record: exit code.
+
+3. **Audio cue test**:
+   ```python
+   python3 -c "from narrator.audio_cue import play_activation_cue; play_activation_cue()"
+   ```
+   Record: exit code.
+
+**Evidence**: 3 exit codes. Flag for user confirmation: "Did you hear all 3 sounds?"
 
 ---
 
-### Phase 6 -- Voice Input (human in the loop)
+### Phase 6 -- Voice Input (collect evidence)
 
-Only run this phase if the human confirms a microphone is available.
-Ask first: "Do you have a microphone connected and want to test voice input?"
+Use K66 mic (device [4]) with 30x gain boost for STT.
 
-If yes:
-
-1. Run a short mic capture test:
+1. **Mic signal test** (3 seconds):
    ```python
-   python3 -c "
    import sounddevice as sd, numpy as np
-   print('Recording 2 seconds...')
-   audio = sd.rec(32000, samplerate=16000, channels=1, dtype='int16')
+   sd.default.device = (4, None)
+   audio = sd.rec(48000, samplerate=16000, channels=1, dtype='int16', device=4)
    sd.wait()
    peak = np.abs(audio).max()
-   print(f'Peak amplitude: {peak}')
-   print('PASS' if peak > 100 else 'FAIL -- no audio detected, check mic')
-   "
    ```
-   Ask: "Did the mic test pass? Did you speak or make noise during the 2-second window?"
+   Use `say -v Samantha` beforehand to tell user to speak.
+   Use `play_activation_cue()` as the recording start signal.
+   Record: peak amplitude. PASS if peak > 100.
 
-2. If mic works, test VoiceInput (requires torch + mlx-whisper installed):
+2. **STT test** (if mic passes):
+   Use VoiceInput with device [4] and 30x gain boost.
+   Use `say -v Samantha` and `play_activation_cue()` to prompt user to speak.
+   Record: transcription text. PASS if non-empty transcription returned.
+
+**Evidence**: peak amplitude, transcription text. Flag for user: "Does the transcription roughly match what you said?"
+
+---
+
+### Phase 7 -- iTerm2 Integration (collect evidence)
+
+1. Use `say -v Samantha` to tell user to watch iTerm2.
+2. Activate iTerm2 and send test text:
    ```python
-   python3 -c "
-   from narrator.stt import VoiceInput
-   vi = VoiceInput(listen_timeout=5.0)
-   print('Speak now (5 second window)...')
-   text = vi.listen_and_transcribe()
-   print(f'Transcription: {text!r}')
-   "
+   from narrator.iterm import send_to_claude_tab
+   send_to_claude_tab("QA Phase 7 test message")
    ```
-   Ask: "Did the transcription match what you said (approximately)?"
+   Use `osascript` to activate iTerm2 first so window is visible.
+3. Record: exit code / any errors.
+
+**Evidence**: exit code, any stderr. Flag for user: "Did you see 'QA Phase 7 test message' in iTerm2?"
 
 ---
 
-### Phase 7 -- iTerm2 Integration (human in the loop)
+### Phase 8 -- Wake Word (collect evidence)
 
-Ask: "Do you want to test iTerm2 integration? This will type text into the
-frontmost iTerm2 tab."
+Use K66 mic (device [4]) with NO gain boost (raw signal).
 
-If yes:
+1. Use `say -v Samantha` to tell user to say "hey jarvis" after the beep.
+2. Use `play_activation_cue()` as signal.
+3. Run openwakeword model for 10 seconds, track max score for `hey_jarvis`.
+   ```python
+   from openwakeword.model import Model
+   oww = Model(inference_framework='onnx')
+   # Read from device 4, NO gain, track max hey_jarvis score
+   ```
+4. Record: max `hey_jarvis` score. PASS if >= 0.5.
 
-1. Ask the human to open a blank iTerm2 tab and focus it.
-2. Run: `python3 -c "from narrator.iterm import send_to_claude_tab; send_to_claude_tab('QA test message')"`.
-3. Ask: "Did 'QA test message' appear in the iTerm2 tab?"
-
----
-
-### Phase 8 -- Wake Word (human in the loop)
-
-Only if human has mic and wants to test.
-
-Ask: "Do you want to test wake word detection? This requires the openwakeword
-package."
-
-If yes, check `python3 -c "import openwakeword"` first. If it fails, report
-the dependency is missing and skip.
-
-If available:
-
-1. Run a short wake word test (10 second window).
-2. Ask: "Say 'hey Jarvis' clearly. Did the detection trigger?"
+**Evidence**: max detection score. Flag for user: "Did you say 'hey jarvis' during the recording window?"
 
 ---
 
-### Phase 9 -- Integration: start.sh
+### Phase 9 -- Integration: start.sh (collect evidence)
 
-Ask: "Do you want to test the full start.sh launcher? This will open new
-iTerm2 windows."
+1. Use `say -v Samantha` to tell user to watch for new iTerm2 tabs.
+2. Run `./start.sh`.
+3. Record: exit code.
 
-If yes:
-
-1. Run `./start.sh` and ask the human to verify:
-   - Two iTerm2 tabs opened
-   - Tab 1 started Claude Code
-   - Tab 2 started the narrator
-2. Ask the human to close the windows when done.
+**Evidence**: exit code. Flag for user: "Did you see 2 new iTerm2 tabs (Claude Code + Narrator)?"
 
 ---
 
 ## Reporting
 
-After all phases, produce a summary table:
+After all phases, produce a summary report with this exact format:
 
 ```
-| Phase | Name                    | Result | Notes |
-|-------|-------------------------|--------|-------|
-| 1     | Environment             | PASS   |       |
-| 2     | Imports                 | PASS   |       |
-| 3     | Unit Logic              | PASS   |       |
-| 4     | Dry-run Pipeline        | PASS   |       |
-| 5     | Audio Playback          | PASS   |       |
-| 6     | Voice Input             | SKIP   | No mic |
-| 7     | iTerm2 Integration      | PASS   |       |
-| 8     | Wake Word               | SKIP   | No openwakeword |
-| 9     | start.sh Launcher       | PASS   |       |
+## QA Report -- Smart Terminal Narrator
+**Date:** YYYY-MM-DD
+
+### Results
+
+| Phase | Name                    | Result | Evidence |
+|-------|-------------------------|--------|----------|
+| 1     | Environment             | PASS   |          |
+| 2     | Imports                 | PASS   |          |
+| 3     | Unit Logic              | PASS   | 6/6      |
+| 4     | Dry-run Pipeline        | PASS   | [Q] ... |
+| 5     | Audio Playback          | PASS   | 3/3 exit 0 |
+| 6     | Voice Input             | PASS   | peak=1297, transcription="..." |
+| 7     | iTerm2 Integration      | PASS   | exit 0   |
+| 8     | Wake Word               | PASS   | score=0.95 |
+| 9     | start.sh Launcher       | PASS   | exit 0   |
+
+### Items Requiring User Confirmation
+1. Phase 5: Did you hear all 3 sounds (macOS say, Piper, audio cue)?
+2. Phase 6: Does the transcription "[transcription]" match what you said?
+3. Phase 7: Did you see "QA Phase 7 test message" in iTerm2?
+4. Phase 8: Did you say "hey jarvis" during the recording window?
+5. Phase 9: Did you see 2 new iTerm2 tabs (Claude Code + Narrator)?
 ```
 
-Mark each phase PASS, FAIL, or SKIP with a brief note.
+Mark each phase PASS, FAIL, or SKIP with evidence.
