@@ -76,30 +76,36 @@ Review the generated agents and customize as needed.
 
 ```mermaid
 flowchart TD
-    A[User runs /qa] --> B[Principal QA]
-    B --> C{qa-automation.md\nand qa-manual.md\nexist?}
-    C -- No --> D[Run /qa setup\nScaffold agents]
+    A[User runs /qa] --> B[Principal QA\n~/.claude/skills/qa/SKILL.md]
+    B --> C{Per-project agents\nexist?}
+    C -- No --> D[/qa setup\nAnalyze project\nSelect patterns from library\nGenerate agents]
     D --> C
-    C -- Yes --> E[Phase 1: Spawn\nqa-automation agent]
+    C -- Yes --> E[Spawn qa-automation agent]
 
-    E --> F[Env checks]
-    E --> G[Import validation]
-    E --> H[Unit tests]
-    E --> I[Dry-run pipeline]
-    F & G & H & I --> J[Automation report\nPASS/FAIL per check]
+    E --> F[Run automated phases\nenv, imports, unit tests, etc.]
+    F --> G[Automation report\nPASS/FAIL per phase]
 
-    J --> K[Phase 2: Spawn\nqa-manual agent]
+    G --> H[Spawn qa-manual agent]
 
-    K --> L[Audio playback]
-    K --> M[Voice input / STT]
-    K --> N[iTerm2 integration]
-    K --> O[Wake word detection]
-    K --> P[start.sh launcher]
-    L & M & N & O & P --> Q[Manual report\nEvidence + UAT items]
+    H --> I[Run manual phases\ncollect objective evidence]
+    I --> J[Manual report\nevidence + UAT items]
 
-    Q --> R[Phase 3: Compile reports\nCombined results table]
-    R --> S[Phase 4: User confirmation\nDid you hear sounds?\nDoes transcription match?]
-    S --> T[Phase 5: Final report\nAll phases PASS/FAIL/SKIP]
+    J --> K[Compile combined report]
+    K --> L[User confirmation\none pass for all UAT items]
+    L --> M[Final report\nall phases PASS/FAIL/SKIP]
+
+    subgraph lib [Reusable Automation Library]
+        direction LR
+        N[environment.md]
+        O[imports.md]
+        P[cli-flags.md]
+        Q[audio-hardware.md]
+        R[evidence-collection.md]
+    end
+
+    D -.->|selects patterns| lib
+    E -.->|references| lib
+    H -.->|references| lib
 ```
 
 ## Reusable Automation Library
