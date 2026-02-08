@@ -76,36 +76,36 @@ Review the generated agents and customize as needed.
 
 ```mermaid
 flowchart TD
-    A[User runs /qa] --> B[Principal QA\n~/.claude/skills/qa/SKILL.md]
-    B --> C{Per-project agents\nexist?}
-    C -- No --> D[/qa setup\nAnalyze project\nSelect patterns from library\nGenerate agents]
+    A["User runs /qa"] --> B["Principal QA"]
+    B --> C{"Per-project agents exist?"}
+    C -- No --> D["Run /qa setup\nAnalyze project\nSelect patterns\nGenerate agents"]
     D --> C
-    C -- Yes --> E[Spawn qa-automation agent]
+    C -- Yes --> E["Spawn qa-automation agent"]
 
-    E --> F[Run automated phases\nenv, imports, unit tests, etc.]
-    F --> G[Automation report\nPASS/FAIL per phase]
+    E --> F["Run automated phases\nenv, imports, unit tests, etc."]
+    F --> G["Automation report\nPASS/FAIL per phase"]
 
-    G --> H[Spawn qa-manual agent]
+    G --> H["Spawn qa-manual agent"]
 
-    H --> I[Run manual phases\ncollect objective evidence]
-    I --> J[Manual report\nevidence + UAT items]
+    H --> I["Run manual phases\ncollect objective evidence"]
+    I --> J["Manual report\nevidence + UAT items"]
 
-    J --> K[Compile combined report]
-    K --> L[User confirmation\none pass for all UAT items]
-    L --> M[Final report\nall phases PASS/FAIL/SKIP]
+    J --> K["Compile combined report"]
+    K --> L["User confirmation\none pass for all UAT items"]
+    L --> M["Final report\nall phases PASS/FAIL/SKIP"]
 
-    subgraph lib [Reusable Automation Library]
+    subgraph lib ["Reusable Automation Library"]
         direction LR
-        N[environment.md]
-        O[imports.md]
-        P[cli-flags.md]
-        Q[audio-hardware.md]
-        R[evidence-collection.md]
+        N["environment.md"]
+        O["imports.md"]
+        P["cli-flags.md"]
+        Q["audio-hardware.md"]
+        R["evidence-collection.md"]
     end
 
-    D -.->|selects patterns| lib
-    E -.->|references| lib
-    H -.->|references| lib
+    D -.->|"selects patterns"| lib
+    E -.->|"references"| lib
+    H -.->|"references"| lib
 ```
 
 ## Reusable Automation Library
