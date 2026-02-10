@@ -6,19 +6,23 @@
 # and the narrator. No tmux required — full mouse scrolling preserved.
 #
 # Usage:
-#   ./start.sh [working-dir] [--voice]
+#   ./start.sh [working-dir] [--voice] [--dangerously-skip-permissions]
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOGFILE="$(mktemp /tmp/claude-narrator.XXXXXX.log)"
+LOGFILE="$(mktemp /tmp/claude-narrator.XXXXXX)"
 
 # Parse flags
 VOICE_FLAGS=""
+CLAUDE_FLAGS=""
 for arg in "$@"; do
     case "$arg" in
         --voice)
             VOICE_FLAGS="--voice-input"
+            ;;
+        --dangerously-skip-permissions)
+            CLAUDE_FLAGS="--dangerously-skip-permissions"
             ;;
     esac
 done
@@ -35,8 +39,13 @@ chmod 600 "$LOGFILE"
 
 # Resolve working directory (optional first positional argument)
 WORK_DIR="$(pwd)"
-if [ -n "${1:-}" ] && [ -d "$1" ]; then
-    WORK_DIR="$(cd "$1" && pwd)"
+if [ -n "${1:-}" ] && [[ "$1" != --* ]]; then
+    if [ -d "$1" ]; then
+        WORK_DIR="$(cd "$1" && pwd)"
+    else
+        echo "Error: directory not found: $1" >&2
+        exit 1
+    fi
 fi
 
 # Escape paths for AppleScript string interpolation
@@ -46,7 +55,7 @@ SAFE_WORK_DIR="$(escape_applescript "$WORK_DIR")"
 SAFE_LOGFILE="$(escape_applescript "$LOGFILE")"
 
 NARRATOR_CMD="python3 '${SAFE_SCRIPT_DIR}/narrator.py' --logfile '${SAFE_LOGFILE}' --interval 2 $VOICE_FLAGS"
-CLAUDE_CMD="cd '${SAFE_WORK_DIR}' && script -q '${SAFE_LOGFILE}' claude"
+CLAUDE_CMD="cd '${SAFE_WORK_DIR}' && script -q '${SAFE_LOGFILE}' claude $CLAUDE_FLAGS"
 
 osascript <<APPLESCRIPT
 tell application "iTerm2"
